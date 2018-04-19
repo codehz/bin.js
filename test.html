@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+  <style>
+.line::after {
+  content: attr(data-value)
+}
+  </style>
+  <script type=module>
+import bin from './bin.js'
+import {el, watch, domap} from './bin.js'
+import {render, renderSvg} from './bin.render.js'
+import * as sym from './bin.symbol.js'
+
+const ret = bin({
+  [sym.element]: document.body,
+  [sym.context]: {
+    text: '',
+    obj: {
+      arr: []
+    }
+  },
+  [sym.components]: [
+    el`div`({
+      [sym.components]: [
+        el`input[placeholder="TODO"]`({
+          [sym.events]: {
+            input (event) {
+              this[sym.context].text = this.value
+              this[sym.context].obj.arr.push(this.value)
+            }
+          }
+        }),
+        el`span`({
+          [sym.updated]: [
+            watch`text`(function ({event: {value}}) {
+              this.textContent = value
+            })
+          ]
+        }),
+        el`div`({
+          [sym.updated]: [
+            domap`obj.arr`(text => ({
+              [sym.element]: render`div.line`,
+              [sym.data]: {
+                value: text
+              },
+              [sym.events]: {
+                click (event) {
+                  let i = 0, el = this;
+                  while (el = el.previousSibling) i++
+                  this[sym.context].obj.arr.splice(i)
+                }
+              }
+            }))
+          ]
+        })
+      ]
+    })
+  ]
+})
+console.log(ret)
+  </script>
+</head>
+<body>
+</body>
+</html>
