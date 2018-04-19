@@ -159,7 +159,8 @@ export default function bin (props = {}) {
     [sym.attr]: $attr = {},
     [sym.events]: $events = {},
     [sym.context]: $context = {},
-    [sym.updated]: $updated = []
+    [sym.updated]: $updated = [],
+    [sym.created]: $created = null
   } = props
   const element = makeElement($el)
   while (element.firstChild) {
@@ -218,6 +219,7 @@ export default function bin (props = {}) {
     $updated.forEach(([pathGroup, handler]) => {
       pathGroup.forEach(([name]) => element[register](name, [pathGroup, handler.bind(element)], element))
     })
+    if ($created) $created.call(element)
   }
   element[sym.components] = observeObject($components, ({event: {type, values, ...params}, path}) => {
     if (path.length === 0 && type === 'exchange') {

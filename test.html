@@ -6,7 +6,7 @@
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
   <title>Document</title>
   <style>
-.line::after {
+[data-value]::before {
   content: attr(data-value)
 }
   </style>
@@ -19,7 +19,6 @@ import * as sym from './bin.symbol.js'
 const ret = bin({
   [sym.element]: document.body,
   [sym.context]: {
-    text: '',
     obj: {
       arr: []
     }
@@ -27,20 +26,33 @@ const ret = bin({
   [sym.components]: [
     el`div`({
       [sym.components]: [
-        el`input[placeholder="TODO"]`({
+        el`form`({
+          [sym.context]: {
+            text: ''
+          },
+          [sym.components]: [
+            el`input[placeholder="TODO"]`({
+              [sym.events]: {
+                input (event) {
+                  this[sym.context].text = this.value
+                }
+              }
+            }),
+            el`span`({
+              [sym.updated]: [
+                watch`text`(function ({event: {value}}) {
+                  this.textContent = value
+                })
+              ]
+            })
+          ],
           [sym.events]: {
-            input (event) {
-              this[sym.context].text = this.value
-              this[sym.context].obj.arr.push(this.value)
+            submit (event) {
+              event.preventDefault()
+              this[sym.context].obj.arr.push(this[sym.context].text)
+              this.reset()
             }
           }
-        }),
-        el`span`({
-          [sym.updated]: [
-            watch`text`(function ({event: {value}}) {
-              this.textContent = value
-            })
-          ]
         }),
         el`div`({
           [sym.updated]: [
@@ -49,13 +61,25 @@ const ret = bin({
               [sym.data]: {
                 value: text
               },
-              [sym.events]: {
-                click (event) {
+              [sym.context]: {
+                remove: null
+              },
+              [sym.created]() {
+                this[sym.context].remove = () => {
                   let i = 0, el = this;
                   while (el = el.previousSibling) i++
                   this[sym.context].obj.arr.splice(i)
                 }
-              }
+              },
+              [sym.components]: [
+                el`div.close[data-value="close"]`({
+                  [sym.events]: {
+                    click () {
+                      this[sym.context].remove()
+                    }
+                  }
+                })
+              ]
             }))
           ]
         })
