@@ -1,6 +1,10 @@
 import {genStr} from './utils.js'
 import {render, renderSvg} from './bin.render.js'
+import genMonad from './GenMonad.js'
+import {parseFilter} from './parser.js'
 import * as sym from './bin.symbol.js'
+
+const filterParser = genMonad(parseFilter)
 
 function makeElement (input) {
   if (input.svg) return renderSvg(input.name)
@@ -86,8 +90,8 @@ const altArrayMethods = {
   splice (handler) {
     return (start, deleteCount = 1, ...items) => {
       start = start > this.length ? this.length : start
-      while (start < 0) start += this.length
-      const removed = this.splice(start, deleteCount, items)
+      if (start < 0) start = 0
+      const removed = this.splice(start, deleteCount, ...items)
       if (removed.length > 0) handler({event: {type: 'remove', values: removed}, path: [start]})
       if (items.length > 0) handler({event: {type: 'add', values: items}, path: [start]})
     }
@@ -145,7 +149,11 @@ const connected = Symbol('connect')
 const disconnected = Symbol('disconnect')
 
 function testEvent (a, b) {
-  return a.startsWith(b) || b.startsWith(a)
+  const min = Math.min(a.length, b.length)
+  for (let i = 0; i < min; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 export default function bin (props = {}) {
@@ -199,7 +207,7 @@ export default function bin (props = {}) {
     return false
   }
   const selfContext = observeObject($context, ({event, path}) => {
-    [...registry].filter(([testPath]) => testPath.some(tar => testEvent(path.join('.'), tar.join('.')))).forEach(([, handler]) => handler({event, path}))
+    [...registry].filter(([testPath]) => testPath.some(tar => testEvent(path, tar))).forEach(([, handler]) => handler({event, path}))
   })
   element[sym.context] = new Proxy($context, {
     get (_, prop) {
@@ -222,7 +230,7 @@ export default function bin (props = {}) {
     if ($created) $created.call(element)
   }
   element[sym.components] = observeObject($components, ({event: {type, values, ...params}, path}) => {
-    if (path.length === 0 && type === 'exchange') {
+    if (path.length === 0) {
       while (element.firstChild) {
         if (element.firstChild[disconnected]) setTimeout(element.firstChild[disconnected])
         element.removeChild(element.firstChild)
@@ -279,7 +287,8 @@ export function watch (str, ...params) {
 }
 
 function access (object, path) {
-  while (path.length > 0) object = object[path.shift()]
+  const xpath = [...path]
+  while (xpath.length > 0) object = object[xpath.shift()]
   return object
 }
 
@@ -290,11 +299,92 @@ export function domap (str, ...params) {
     [target],
     function ({event: {type, values, ...params}, path}) {
       const arr = access(this[sym.context], target)
-      if (path.length === purge && type === 'exchange') this[sym.components] = arr.map(fn)
+      if (path.length === purge) this[sym.components].splice(0, this[sym.components].length, ...arr.map(fn))
       else if (path.length === purge + 1) {
         if (type === 'add') this[sym.components].splice(path[purge], 0, ...values.map(fn))
         else if (type === 'remove') this[sym.components].splice(path[purge], values.length)
         else if (type === 'set') this[sym.components][path[purge]] = fn(arr[path[purge]])
+      }
+    }
+  ]
+}
+
+export function filterBy (str, ...params) {
+  const {path: srcPath, filter: filterPath} = filterParser(genStr([...str], [...params]))
+  const pathPurge = srcPath.length
+  function fullUpgrade (targetPath) {
+    const targetArr = access(this[sym.context], targetPath)
+    const srcArr = access(this[sym.context], srcPath)
+    const filterFn = access(this[sym.context], filterPath)
+    const queue = []
+    for (let i = 0; i < srcArr.length; i++) {
+      if (filterFn(srcArr[i])) {
+        queue.push({
+          index: i,
+          value: Reflect.get(srcArr, i)
+        })
+      }
+    }
+    targetArr.splice(0, targetArr.length, ...queue)
+  }
+  function getIndex (arr, pos) {
+    const ret = arr.findIndex(({index}) => index >= pos)
+    return ret === -1 ? arr.length : ret
+  }
+  return target => [
+    [srcPath, filterPath],
+    function ({event: {type, values, value}, path}) {
+      const targetPath = target.split('.')
+      if (testEvent(path, filterPath)) {
+        // filter changed (or all changed)
+        fullUpgrade.call(this, targetPath)
+      } else {
+        // source changed
+        if (path.length === pathPurge) {
+          fullUpgrade.call(this, targetPath)
+        } else if (path.length === pathPurge + 1) {
+          const srcIndex = path[pathPurge]
+          const srcArr = access(this[sym.context], srcPath)
+          const targetArr = access(this[sym.context], targetPath)
+          const filterFn = access(this[sym.context], filterPath)
+          const targetIndex = getIndex(targetArr, srcIndex)
+          const queue = []
+          if (type === 'add') {
+            for (let i = srcIndex; i < srcIndex + values.length; i++) {
+              if (filterFn(srcArr[i])) {
+                queue.push({
+                  index: i,
+                  value: srcArr[i]
+                })
+              }
+            }
+            const offset = queue.length
+            if (offset) {
+              targetArr.splice(targetIndex, 0, ...queue)
+            }
+            for (let i = targetIndex + offset; i < targetArr.length; i++) {
+              targetArr[i].index += values.length
+            }
+          } else if (type === 'remove') {
+            let targetIndexEnd = getIndex(targetArr, srcIndex + values.length)
+            const offset = targetIndexEnd - targetIndex
+            if (offset > 0) {
+              targetArr.splice(targetIndex, offset)
+            }
+            for (let i = targetIndex; i < targetArr.length; i++) {
+              targetArr[i].index -= values.length
+            }
+          } else if (type === 'set') {
+            if (targetIndex !== targetArr.length) {
+              if (!filterFn(targetArr[targetIndex])) targetArr.splice(targetIndex, 1)
+            } else if (filterFn(value)) {
+              targetArr.splice(targetIndex, 0, {
+                index: srcIndex,
+                value
+              })
+            }
+          }
+        }
       }
     }
   ]

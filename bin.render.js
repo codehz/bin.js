@@ -1,8 +1,8 @@
 import genMonad from './GenMonad.js'
-import parser from './parser.js'
+import {parseElement} from './parser.js'
 import {genStr} from './utils.js'
 
-export const parse = genMonad(parser)
+export const parse = genMonad(parseElement)
 
 function camelCase (str) {
   return str.replace(/-(\w)/g, (all, letter) => letter.toUpperCase())

@@ -24,9 +24,10 @@ export default {
       }
     }
   },
+  excepted (ch) {
+    return input => input.length > 0 && input[0] === ch ? { next: input.slice(1), result: true } : { next: input, result: false }
+  },
   eof () {
-    return input => {
-      return input.length === 0 ? { next: '', result: true } : undefined
-    }
+    return input => input.length === 0 ? { next: '', result: true } : undefined
   }
 }
