@@ -106,7 +106,7 @@ const altArrayMethods = {
 }
 
 function observeObject (object, handler) {
-  if (typeof object === 'object') {
+  if (object !== null && typeof object === 'object') {
     let base = {
       get (_, prop) {
         if (prop in object) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}))
@@ -119,7 +119,7 @@ function observeObject (object, handler) {
         return true
       }
     }
-    if (object instanceof Array) {
+    if (Array.isArray(object)) {
       base = {
         get (_, prop) {
           if (!isNaN(prop) && Number.isInteger(+prop) && prop < object.length) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}))
