@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Nested Test</title>
+  <style>
+body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+[data-value]::after {
+  content: attr(data-value)
+}
+div.list {
+  padding-left: 10px;
+  border: 1px black solid;
+  margin: 2px;
+}
+div.viewer.list {
+  flex-direction: column;
+}
+  </style>
+  <script type=module>
+import bin from './bin.js'
+import {el, watch, domap, filterBy, force, access} from './bin.js'
+import {render, renderSvg} from './bin.render.js'
+import * as sym from './bin.symbol.js'
+
+function createEditor(data) {
+  if (Array.isArray(data)) return createListEditor(data)
+  else return createTextEditor(data)
+}
+
+function createTextEditor(data) {
+  return el`div.editor.text`({
+    [sym.element]: render`div.editor.text`,
+    [sym.context]: {
+      data,
+      editing: false
+    },
+    [sym.updated]: [
+      watch`editing`(function () {
+        this.classList.toggle('editing', this[sym.context].editing)
+      })
+    ],
+    [sym.components]: [
+      el`span`({
+        [sym.created] () {
+          this.textContent = data.value
+        },
+        [sym.events]: {
+          click () {
+            this[sym.context].editing = true
+          },
+          blur () {
+            this[sym.context].editing = false
+            this[sym.context].data.value = this.textContent
+          },
+          keydown (event) {
+            const {keyCode} = event
+            if (keyCode === 13) {
+              event.preventDefault()
+              this.blur()
+            }
+          }
+        },
+        [sym.updated]: [
+          watch`data`(function () {
+            this.textContent = this[sym.context].data.value
+          }),
+          watch`editing`(function () {
+            this.contentEditable = this[sym.context].editing ? 'plaintext-only' : 'false'
+            this.focus()
+          })
+        ]
+      })
+    ]
+  })
+}
+
+function createListEditor(data) {
+  return el`div.editor.list`({
+    [sym.context]: {
+      data
+    },
+    [sym.components]: [
+      el`div.control`({
+        [sym.components]: [
+          el`input[type="button"][value="clear"]`({
+            [sym.events]: {
+              click (event) {
+                event.preventDefault()
+                this[sym.context].data = []
+              }
+            }
+          }),
+          el`input[type="button"][value="add list"]`({
+            [sym.events]: {
+              click (event) {
+                event.preventDefault()
+                this[sym.context].data.push([])
+              }
+            }
+          }),
+          el`input[type="button"][value="add value"]`({
+            [sym.events]: {
+              click (event) {
+                event.preventDefault()
+                this[sym.context].data.push({value: "text"})
+              }
+            }
+          }),
+          el`input[type="button"][value="debug"]`({
+            [sym.events]: {
+              click (event) {
+                event.preventDefault()
+                console.log(JSON.stringify(this[sym.context].data))
+              }
+            }
+          })
+        ]
+      }),
+      el`div.content`({
+        [sym.updated]: [
+          domap`data`(createEditor)
+        ]
+      })
+    ]
+  })
+}
+
+function createTextViewer (data, path) {
+  return el`div.viewer.text`({
+    [sym.data]: {
+      value: data.value
+    },
+    [sym.updated]: [
+      watch`${path.join('.')}`(function () {
+        this.dataset.value = data.value
+      })
+    ]
+  })
+}
+
+function createListViewer (path) {
+  console.log(path.join('.'))
+  function createViewer (data, index) {
+    console.log(data, index, Array.isArray(data))
+    if (Array.isArray(data)) return createListViewer([...path, index])
+    else return createTextViewer(data, [...path, index])
+  }
+  return el`div.viewer.list`({
+    [sym.updated]: [
+      domap`${path.join('.')}`(createViewer)
+    ]
+  })
+}
+
+force(bin({
+  [sym.element]: document.body,
+  [sym.context]: {
+    data: []
+  },
+  [sym.created] () {
+    console.log('created')
+    this[sym.components].push(createListEditor(this[sym.context].data))
+    console.log(this[sym.context].data)
+    this[sym.components].push(createListViewer(['data']))
+  },
+  [sym.updated]: [
+    watch`data`(function ({event: {type}, path}) {
+      console.log(path, type)
+    })
+  ]
+}))
+  </script>
+</head>
+<body>
+</body>
+</html>

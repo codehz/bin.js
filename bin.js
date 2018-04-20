@@ -10,6 +10,7 @@ function makeElement (input) {
   if (input.svg) return renderSvg(input.name)
   else if (input === 'text') return document.createTextNode('ERROR')
   else if (typeof input === 'string') return render(input)
+  else if (input[hidden]) return input[hidden]
   else return input
 }
 
@@ -38,11 +39,21 @@ const staticArrayMethods = [
   'values'
 ]
 const altArrayMethods = {
-  copyWithin (handler) {
+  map (handler, self) {
+    return (callback, thisArg) => {
+      const result = new Array(this.length)
+      for (let i = 0; i < this.length; i++) {
+        result[i] = callback(self[i], i, self)
+      }
+      console.log('map!')
+      return result
+    }
+  },
+  copyWithin (handler, self) {
     return (...params) => {
       this.copyWithin(...params)
       handler({event: {type: 'exchange'}, path: []})
-      return observeObject(this, handler)
+      return self
     }
   },
   fill (handler) {
@@ -64,11 +75,11 @@ const altArrayMethods = {
       return value
     }
   },
-  push (handler) {
+  push (handler, self) {
     return (...els) => {
       const start = this.length
       this.push(...els)
-      handler({event: {type: 'add', values: els}, path: [start]})
+      handler({event: {type: 'add', values: els.map((_, i) => self[i + start])}, path: [start]})
       return this.length
     }
   },
@@ -80,36 +91,41 @@ const altArrayMethods = {
       return value
     }
   },
-  sort (handler) {
+  sort (handler, self) {
     return () => {
       this.sort()
       handler({event: {type: 'exchange'}, path: []})
-      return observeObject(this, handler)
+      return self
     }
   },
-  splice (handler) {
+  splice (handler, self) {
     return (start, deleteCount = 1, ...items) => {
       start = start > this.length ? this.length : start
       if (start < 0) start = 0
       const removed = this.splice(start, deleteCount, ...items)
       if (removed.length > 0) handler({event: {type: 'remove', values: removed}, path: [start]})
-      if (items.length > 0) handler({event: {type: 'add', values: items}, path: [start]})
+      if (items.length > 0) handler({event: {type: 'add', values: items.map((_, i) => self[i + start])}, path: [start]})
     }
   },
-  unshift (handler) {
+  unshift (handler, self) {
     return (...els) => {
       this.unshift(...els)
-      handler({event: {type: 'add', values: els}, path: [0]})
+      handler({event: {type: 'add', values: els.map((_, i) => self[i])}, path: [0]})
       return this.length
     }
   }
 }
 
-function observeObject (object, handler) {
+const hidden = Symbol('hidden')
+const trojan = Symbol('trojan')
+
+function observeObject (object, handler, tracer = null) {
   if (object !== null && typeof object === 'object') {
     let base = {
       get (_, prop) {
-        if (prop in object) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}))
+        if (prop === hidden) return object
+        if (prop === trojan) return handler
+        if (prop in object) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}), prop)
         return undefined
       },
       set (_, prop, value) {
@@ -122,10 +138,13 @@ function observeObject (object, handler) {
     if (Array.isArray(object)) {
       base = {
         get (_, prop) {
-          if (!isNaN(prop) && Number.isInteger(+prop) && prop < object.length) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}))
+          if (prop === hidden) return object
+          if (prop === trojan) return handler
+          if (prop === Symbol.iterator) return object[Symbol.iterator]
+          if (!isNaN(prop) && Number.isInteger(+prop) && prop < object.length) return observeObject(object[prop], ({event, path}) => handler({event, path: [prop, ...path]}), prop)
           else if (prop === 'length') return object.length
           else if (staticArrayMethods.includes(prop)) return object[prop]
-          else if (prop in altArrayMethods) return altArrayMethods[prop].call(object, handler)
+          else if (prop in altArrayMethods) return altArrayMethods[prop].call(object, handler, observeObject(object, handler, tracer))
           return undefined
         },
         set (_, prop, value) {
@@ -151,7 +170,7 @@ const disconnected = Symbol('disconnect')
 function testEvent (a, b) {
   const min = Math.min(a.length, b.length)
   for (let i = 0; i < min; i++) {
-    if (a[i] !== b[i]) return false
+    if (a[i].toString() !== b[i].toString()) return false
   }
   return true
 }
@@ -268,6 +287,10 @@ export default function bin (props = {}) {
   return element
 }
 
+export function force (element) {
+  element[connected]()
+}
+
 export function el (...params) {
   return rest => Object.assign(rest, {
     [sym.element]: render(...params)
@@ -288,7 +311,7 @@ export function watch (str, ...params) {
   ]
 }
 
-function access (object, path) {
+export function access (object, path) {
   const xpath = [...path]
   while (xpath.length > 0) object = object[xpath.shift()]
   return object
@@ -303,9 +326,14 @@ export function domap (str, ...params) {
       const arr = access(this[sym.context], target)
       if (path.length === purge) this[sym.components].splice(0, this[sym.components].length, ...arr.map(fn))
       else if (path.length === purge + 1) {
-        if (type === 'add') this[sym.components].splice(path[purge], 0, ...values.map(fn))
-        else if (type === 'remove') this[sym.components].splice(path[purge], values.length)
-        else if (type === 'set') this[sym.components][path[purge]] = fn(arr[path[purge]])
+        if (type === 'add') {
+          const added = new Array(values.length)
+          for (let i = 0; i < values.length; i++) {
+            added[i] = fn(values[i], i + path[purge])
+          }
+          this[sym.components].splice(path[purge], 0, ...added)
+        } else if (type === 'remove') this[sym.components].splice(path[purge], values.length)
+        else if (type === 'set') this[sym.components][path[purge]] = fn(arr[path[purge]], +path[purge])
       }
     }
   ]
@@ -390,4 +418,8 @@ export function filterBy (str, ...params) {
       }
     }
   ]
+}
+
+export function simulate (base, data) {
+  base[trojan](data)
 }
