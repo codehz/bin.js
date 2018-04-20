@@ -143,11 +143,8 @@ const ret = bin({
               [sym.data]: {
                 value: text
               },
-              [sym.context]: {
-                remove: null
-              },
-              [sym.created]() {
-                this[sym.context].remove = () => {
+              [sym.methods]: {
+                remove () {
                   let i = 0, el = this;
                   while (el = el.previousSibling) i++
                   this[sym.context].obj.arr.splice(i)
@@ -163,17 +160,15 @@ const ret = bin({
         }),
         el`div.list-root`({
           [sym.context]: {
-            filter: null,
             filtered: []
           },
-          [sym.created]() {
-            this[sym.context].filter = text => /a/.test(text)
+          [sym.methods]: {
+            filter (text) {
+              return /a/.test(text)
+            }
           },
           [sym.updated]: [
             filterBy`obj.arr|filter`('filtered'),
-            watch`filtered` (function (event) {
-              // console.log(this[sym.context].filtered)
-            }),
             domap`filtered` (({value}) => ({
               [sym.element]: render`div.line.filter`,
               [sym.data]: {

@@ -167,6 +167,7 @@ export default function bin (props = {}) {
     [sym.attr]: $attr = {},
     [sym.events]: $events = {},
     [sym.context]: $context = {},
+    [sym.methods]: $methods = {},
     [sym.updated]: $updated = [],
     [sym.created]: $created = null
   } = props
@@ -220,6 +221,7 @@ export default function bin (props = {}) {
       return true
     }
   })
+  Object.entries($methods).forEach(([k, v]) => ($context[k] = v.bind(element)))
   element[disconnected] = function () {
     defer.forEach(x => x())
   }
